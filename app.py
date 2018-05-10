@@ -1,6 +1,7 @@
 import datetime as dt
 import numpy as np
 import pandas as pd
+from datetime import datetime
 
 import sqlalchemy
 from sqlalchemy.ext.automap import automap_base
@@ -65,7 +66,8 @@ def stations():
 @app.route('/api/v1.0/tobs')
 def tobs():
     '''Return a json list of Temperature Observations (tobs) for the previous year'''
-    query_tobs = session.query(Measurement.date,Measurement.tobs).filter(Measurement.date >= prev).filter(Measurement.station == station_high).order_by(Measurement.date).all()
+    prev = dt.date.today() - dt.timedelta(days=365)
+    query_tobs = session.query(Measurement.date,Measurement.tobs).filter(Measurement.date >= prev).group_by(Measurement.date).order_by(Measurement.date).all()
     tobs_list = []
     for temp in query_tobs:
         tobs_dict = {}
@@ -74,19 +76,31 @@ def tobs():
         tobs_list.append(tobs_dict)
     return jsonify(tobs_list)
 
-@app.route('/api/v1.0/<start>')
-def calc_temps_start(start_date):
-    temp_range_start = session.query(Measurement.date,Measurement.tobs).filter(Measurement.date >= start_date)
-    temp_range_start_df = pd.DataFrame(temp_range_start.all())
-    return jsonify([float(temp_range_df.tobs.min()),float(temp_range_df.tobs.mean()),float(temp_range_df.tobs.max())])    
+  
 
-@app.route('/api/v1.0/<start>/<end>')
-def calc_temps_start_end(start_date, end_date):
-    temp_range_end = session.query(Measurement.date,Measurement.tobs).filter(Measurement.date >= start_date).filter(Measurement.date <= end_date)
-    temp_range_end_df = pd.DataFrame(temp_range_end.all())
-    return jsonify([float(temp_range_df.tobs.min()),float(temp_range_df.tobs.mean()),float(temp_range_df.tobs.max())])    
+@app.route("/api/v1.0/temp/<start>")
+@app.route("/api/v1.0/temp/<start>/<end>")
+def stats(start=None, end=None):
+    """Return TMIN, TAVG, TMAX."""
 
+    # Select statement
+    sel = [func.min(Measurement.tobs), func.avg(Measurement.tobs), func.max(Measurement.tobs)]
 
+    if not end:
+        # calculate TMIN, TAVG, TMAX for dates greater than start
+        results = session.query(*sel).\
+            filter(Measurement.date >= start).all()
+        # Unravel results into a 1D array and convert to a list
+        temps = list(np.ravel(results))
+        return jsonify(temps)
+
+    # calculate TMIN, TAVG, TMAX with start and stop
+    results = session.query(*sel).\
+        filter(Measurement.date >= start).\
+        filter(Measurement.date <= end).all()
+    # Unravel results into a 1D array and convert to a list
+    temps = list(np.ravel(results))
+    return jsonify(temps)
 
 if __name__ == '__main__':
     app.run(debug=True)
